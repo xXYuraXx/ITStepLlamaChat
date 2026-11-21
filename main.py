@@ -4,6 +4,8 @@ from tkinter import *
 from tkinter import messagebox
 from datetime import datetime
 import threading
+from dotenv import load_dotenv
+import os
 
 def create_payload_from_prompt(prompt):
     payload = {
@@ -16,31 +18,74 @@ def create_payload_from_prompt(prompt):
 def print_log(*args, **kwargs):
     print(f"[{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}]", *args, **kwargs)
 
+def get_ai_response(user_text):
+    """
+    Sends user text to the Groq server and returns the AI response.
+    """
+
+    # Request headers
+    # Authorization proves we have access using the API key
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    # Request body data
+    data = {
+        # Using the Llama 3 model
+        "model": "openai/gpt-oss-120b",
+
+        "messages": [
+            # System message: defines assistant behavior
+            {
+                "role": "system",
+                "content": "You are a helpful assistant that answers in Ukrainian. Be concise."
+            },
+
+            # User message
+            {
+                "role": "user",
+                "content": user_text
+            }
+        ],
+
+        # Creativity level
+        # 0 = more strict/deterministic
+        # 1 = more creative/random
+        "temperature": 0.7
+    }
+
+    try:
+        # SEND REQUEST (POST)
+        response = requests.post(GROQ_URL, headers=headers, json=data)
+
+        # Check if request was successful
+        # Status code 200 means OK
+        if response.status_code == 200:
+            result = response.json()
+
+            # --- PARSE RESPONSE ---
+            # Response structure:
+            # result -> choices -> first item [0] -> message -> content
+            bot_text = result['choices'][0]['message']['content']
+
+            return bot_text
+
+        else:
+            return f"Server error: {response.status_code}. Check your API key!"
+
+    except Exception as e:
+        return f"No internet connection or code error: {e}"
 
 def post_request(prompt):
     try:
-        with requests.post(
-            "http://localhost:11434/api/generate", json=create_payload_from_prompt(prompt), stream=True
-        ) as response:
-                
-            print_log("Status code:", response.status_code)
-            
-            if response.status_code // 100 != 2:
-                messagebox.showerror("Error", "Llama response error!")
-                print_log("Error occured")
-
-            for line in response.iter_lines():
-                if line:
-                    content = line.decode("utf-8").removeprefix("data: ")
-                    try:
-                        chunk = json.loads(content)
-                        new_text = chunk.get("response", "")
-                        text_agent_response.config(state="normal")
-                        text_agent_response.insert(END, new_text)
-                        text_agent_response.see(END)
-                        text_agent_response.config(state="disabled")
-                    except Exception as e:
-                        print_log(f"\n[Error parsing line]: {content}")
+        text_response = get_ai_response(prompt)
+        text_agent_response.config(state="normal")
+        text_agent_response.insert(END, text_response)
+        text_agent_response.see(END)
+        text_agent_response.config(state="disabled")
+    except Exception as e:
+        print_log(f"\n[Error parsing line]: {prompt}\nError: {e}")
     finally:
         button_send.config(state="normal")
                     
@@ -62,6 +107,10 @@ def send_pressed():
     thread.start()
     
                     
+                    
+load_dotenv()
+GROQ_API_KEY = os.getenv("GROQ_KEY")
+GROQ_URL = r"https://api.groq.com/openai/v1/chat/completions"
 
 root = Tk()
 
